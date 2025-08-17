@@ -189,6 +189,48 @@ const GlobalStyles = () => (
       color: #374151;
     }
 
+    /* New Mic Button Styles */
+    .button-icon {
+      padding: 0.5rem;
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background-color: #e5e7eb;
+      color: #4b5563;
+      margin-left: 0.5rem;
+      flex-shrink: 0;
+    }
+    .button-icon:hover:not(:disabled) {
+      background-color: #d1d5db;
+    }
+    .button-icon.listening {
+      background-color: #ef4444;
+      color: white;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+      70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+    }
+
+    .textarea-wrapper {
+      position: relative;
+      display: flex;
+      align-items: flex-start;
+    }
+    .textarea-wrapper .textarea-field {
+      width: 100%;
+      padding-right: 50px; /* Space for the button */
+    }
+    .textarea-wrapper .button-icon {
+      position: absolute;
+      right: 10px;
+      top: 10px;
+      margin-top: 0;
+    }
 
     /* Results & Display Boxes */
     .results-box {
@@ -330,7 +372,7 @@ const GlobalStyles = () => (
 
 
 // --- Helper Functions & Constants ---
-const API_KEY = "AIzaSyAXvsgiQFh2KEV0OcCaPSxsSue11T_rOzM"; // PASTE YOUR GEMINI API KEY HERE
+const API_KEY = ""; // PASTE YOUR GEMINI API KEY HERE
 
 const STAGES = {
   WELCOME: 'WELCOME',
@@ -353,7 +395,13 @@ const behavioralQuestions = [
   "Tell me about a project you are particularly proud of.",
 ];
 
-const technicalTopics = ["Data Structures", "Algorithms", "System Design", "Databases", "Networking"];
+const technicalTopics = {
+  "Data Structures": ["Arrays", "Linked Lists", "Trees", "Graphs", "Hash Tables"],
+  "Algorithms": ["Sorting", "Searching", "Dynamic Programming", "Recursion", "Big O Notation"],
+  "System Design": ["Scalability", "Databases", "Caching", "Load Balancing", "API Design"],
+  "Databases": ["SQL", "NoSQL", "Indexing", "Transactions", "Normalization"],
+  "Networking": ["TCP/IP", "HTTP/HTTPS", "DNS", "OSI Model", "Sockets"]
+};
 
 // --- API Call Helper ---
 const callGeminiAPI = async (prompt, filePayload = null, retries = 3, delay = 1000) => {
@@ -419,6 +467,67 @@ const LoadingSpinner = () => (
     <div className="loading-spinner"></div>
   </div>
 );
+
+// --- New SpeechRecognitionButton Component ---
+const SpeechRecognitionButton = ({ onTranscript, isListening, setIsListening }) => {
+  const recognitionRef = useRef(null);
+  const [isSupported, setIsSupported] = useState(true);
+
+  useEffect(() => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      console.error("Web Speech API is not supported by this browser.");
+      setIsSupported(false);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
+
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      onTranscript(transcript);
+    };
+
+    recognition.onerror = (event) => {
+      console.error("Speech recognition error:", event.error);
+      setIsListening(false);
+    };
+    
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognitionRef.current = recognition;
+  }, [onTranscript, setIsListening]);
+
+  const toggleListen = () => {
+    if (!recognitionRef.current) return;
+    
+    if (isListening) {
+      recognitionRef.current.stop();
+    } else {
+      recognitionRef.current.start();
+    }
+    setIsListening(!isListening);
+  };
+  
+  if (!isSupported) {
+    return null; // Don't render the button if the browser doesn't support the API
+  }
+
+  return (
+    <button onClick={toggleListen} className={`button button-icon ${isListening ? 'listening' : ''}`} title="Use Microphone">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+        <line x1="12" y1="19" x2="12" y2="22"></line>
+      </svg>
+    </button>
+  );
+};
 
 const WelcomeScreen = ({ onStart }) => (
   <div className="text-center p-8">
@@ -488,8 +597,6 @@ const ResumeReview = ({ onComplete }) => {
       setFile(selectedFile);
       const reader = new FileReader();
       reader.onloadend = () => {
-        // The result is a data URL: "data:mime/type;base64,the_base_64_string"
-        // We need to extract just the base64 part.
         const base64String = reader.result.split(',')[1];
         setFileData({
           mimeType: selectedFile.type,
@@ -551,6 +658,7 @@ const BehavioralQuestions = ({ onComplete }) => {
   const [answer, setAnswer] = useState('');
   const [feedback, setFeedback] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   
   const [pitchPoints, setPitchPoints] = useState('');
   const [generatedPitch, setGeneratedPitch] = useState('');
@@ -617,13 +725,21 @@ const BehavioralQuestions = ({ onComplete }) => {
         </div>
       )}
 
-      <textarea
-        value={answer}
-        onChange={(e) => setAnswer(e.target.value)}
-        placeholder="Draft your answer here..."
-        className="textarea-field"
-        style={{height: '10rem'}}
-      />
+      <div className="textarea-wrapper">
+        <textarea
+          value={answer}
+          onChange={(e) => setAnswer(e.target.value)}
+          placeholder="Type or click the mic to speak your answer..."
+          className="textarea-field"
+          style={{height: '10rem'}}
+        />
+        <SpeechRecognitionButton
+          onTranscript={(transcript) => setAnswer(prev => prev ? `${prev} ${transcript}` : transcript)}
+          isListening={isListening}
+          setIsListening={setIsListening}
+        />
+      </div>
+
       <button onClick={handleGetFeedback} disabled={isLoading || !answer} className="button button-primary">
         {isLoading ? 'Getting Feedback...' : 'Get Feedback'}
       </button>
@@ -642,27 +758,36 @@ const BehavioralQuestions = ({ onComplete }) => {
 };
 
 const TechnicalQuestions = ({ onComplete }) => {
-    const [topic, setTopic] = useState(technicalTopics[0]);
+    const [topic, setTopic] = useState(Object.keys(technicalTopics)[0]);
+    const [subTopic, setSubTopic] = useState(technicalTopics[topic][0]);
     const [question, setQuestion] = useState('');
     const [answer, setAnswer] = useState('');
     const [feedback, setFeedback] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [questionLoading, setQuestionLoading] = useState(false);
+    const [isListening, setIsListening] = useState(false);
+
+    // Reset sub-topic when main topic changes
+    useEffect(() => {
+        setSubTopic(technicalTopics[topic][0]);
+    }, [topic]);
 
     const generateQuestion = async () => {
+        if (!topic || !subTopic) return;
         setQuestionLoading(true);
         setQuestion('');
         setAnswer('');
         setFeedback('');
-        const prompt = `Generate a common interview question for a software engineering role on the topic of: ${topic}.`;
+        const prompt = `Generate a common interview question for a software engineering role on the topic of: ${topic}, specifically about ${subTopic}.`;
         const result = await callGeminiAPI(prompt);
         setQuestion(result);
         setQuestionLoading(false);
     };
 
+    // Generate a new question whenever the topic or sub-topic changes
     useEffect(() => {
         generateQuestion();
-    }, [topic]);
+    }, [topic, subTopic]);
 
     const handleGetFeedback = async () => {
         if (!answer) return;
@@ -679,7 +804,14 @@ const TechnicalQuestions = ({ onComplete }) => {
             <div className="select-group">
                 <label htmlFor="topic-select">Choose a topic:</label>
                 <select id="topic-select" value={topic} onChange={e => setTopic(e.target.value)} className="select-field">
-                    {technicalTopics.map(t => <option key={t} value={t}>{t}</option>)}
+                    {Object.keys(technicalTopics).map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+            </div>
+            
+            <div className="select-group">
+                <label htmlFor="sub-topic-select">Choose a sub-topic:</label>
+                <select id="sub-topic-select" value={subTopic} onChange={e => setSubTopic(e.target.value)} className="select-field">
+                    {technicalTopics[topic].map(st => <option key={st} value={st}>{st}</option>)}
                 </select>
             </div>
             
@@ -690,13 +822,20 @@ const TechnicalQuestions = ({ onComplete }) => {
                     <div className="question-box">
                         <p>{question}</p>
                     </div>
-                    <textarea
-                        value={answer}
-                        onChange={(e) => setAnswer(e.target.value)}
-                        placeholder="Write your solution or explanation here..."
-                        className="textarea-field"
-                        style={{height: '12rem', fontFamily: 'monospace'}}
-                    />
+                    <div className="textarea-wrapper">
+                        <textarea
+                            value={answer}
+                            onChange={(e) => setAnswer(e.target.value)}
+                            placeholder="Write or click the mic to speak your solution..."
+                            className="textarea-field"
+                            style={{height: '12rem', fontFamily: 'monospace'}}
+                        />
+                        <SpeechRecognitionButton
+                          onTranscript={(transcript) => setAnswer(prev => prev ? `${prev} ${transcript}` : transcript)}
+                          isListening={isListening}
+                          setIsListening={setIsListening}
+                        />
+                    </div>
                     <button onClick={handleGetFeedback} disabled={isLoading || !answer} className="button button-primary">
                         {isLoading ? 'Evaluating...' : 'Evaluate Answer'}
                     </button>
@@ -720,6 +859,7 @@ const MockInterview = ({ onComplete }) => {
   const [messages, setMessages] = useState([]);
   const [userInput, setUserInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
@@ -760,15 +900,20 @@ const MockInterview = ({ onComplete }) => {
         {isLoading && <div className="chat-message-wrapper ai"><div className="chat-message">...</div></div>}
         <div ref={messagesEndRef} />
       </div>
-      <div className="input-group">
+      <div className="input-group" style={{alignItems: 'center'}}>
         <input
           type="text"
           value={userInput}
           onChange={(e) => setUserInput(e.target.value)}
           onKeyPress={(e) => e.key === 'Enter' && !isLoading && handleSendMessage()}
-          placeholder="Type your answer..."
+          placeholder="Type or click the mic to speak..."
           className="input-field"
           disabled={isLoading}
+        />
+        <SpeechRecognitionButton
+          onTranscript={(transcript) => setUserInput(prev => prev ? `${prev} ${transcript}` : transcript)}
+          isListening={isListening}
+          setIsListening={setIsListening}
         />
         <button onClick={handleSendMessage} disabled={isLoading} className="button button-primary">
           Send
