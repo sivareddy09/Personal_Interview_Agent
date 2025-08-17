@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 // --- CSS Styles ---
-// By embedding the CSS here, we make the component self-contained and avoid file resolution errors.
-const AppStyles = () => {
-  const css = `
+const GlobalStyles = () => (
+  <style>{`
     /* General App Styles */
     body {
       margin: 0;
@@ -157,6 +156,39 @@ const AppStyles = () => {
       font-weight: 600;
       margin-bottom: 0.5rem;
     }
+    
+    /* New File Upload Styles */
+    .file-upload-wrapper {
+      border: 2px dashed #d1d5db;
+      border-radius: 0.5rem;
+      padding: 2rem;
+      text-align: center;
+      cursor: pointer;
+      background-color: #f9fafb;
+      margin-bottom: 1rem;
+      transition: background-color 0.2s, border-color 0.2s;
+    }
+    .file-upload-wrapper:hover {
+      background-color: #f3f4f6;
+      border-color: #4f46e5;
+    }
+    .file-upload-wrapper input[type="file"] {
+      display: none;
+    }
+    .file-upload-text {
+      color: #4b5563;
+      font-weight: 500;
+    }
+    .file-upload-text span {
+      color: #4f46e5;
+      font-weight: bold;
+    }
+    .file-name {
+      margin-top: 1rem;
+      font-weight: bold;
+      color: #374151;
+    }
+
 
     /* Results & Display Boxes */
     .results-box {
@@ -293,9 +325,8 @@ const AppStyles = () => {
         transform: rotate(360deg);
       }
     }
-  `;
-  return <style>{css}</style>;
-};
+  `}</style>
+);
 
 
 // --- Helper Functions & Constants ---
@@ -325,12 +356,25 @@ const behavioralQuestions = [
 const technicalTopics = ["Data Structures", "Algorithms", "System Design", "Databases", "Networking"];
 
 // --- API Call Helper ---
-const callGeminiAPI = async (prompt, retries = 3, delay = 1000) => {
+const callGeminiAPI = async (prompt, filePayload = null, retries = 3, delay = 1000) => {
   if (!API_KEY) {
     return "Error: API key is missing. Please add your Gemini API key to the `API_KEY` constant in `src/App.js`.";
   }
-  let chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
-  const payload = { contents: chatHistory };
+
+  const userParts = [{ text: prompt }];
+  if (filePayload) {
+    userParts.push({
+      inlineData: {
+        mimeType: filePayload.mimeType,
+        data: filePayload.data
+      }
+    });
+  }
+
+  const payload = {
+    contents: [{ role: "user", parts: userParts }]
+  };
+
   const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${API_KEY}`;
   
   for (let i = 0; i < retries; i++) {
@@ -350,7 +394,11 @@ const callGeminiAPI = async (prompt, retries = 3, delay = 1000) => {
           result.candidates[0].content && result.candidates[0].content.parts &&
           result.candidates[0].content.parts.length > 0) {
         return result.candidates[0].content.parts[0].text;
-      } else {
+      } else if (result.promptFeedback) {
+        console.error("API call blocked:", result.promptFeedback);
+        return `Sorry, my safety filters blocked the request. Reason: ${result.promptFeedback.blockReason}.`;
+      }
+      else {
         throw new Error("Invalid API response structure");
       }
     } catch (error) {
@@ -426,16 +474,37 @@ const CompanyResearch = ({ onComplete }) => {
   );
 };
 
+// --- Updated ResumeReview Component ---
 const ResumeReview = ({ onComplete }) => {
-  const [resumeText, setResumeText] = useState('');
+  const [file, setFile] = useState(null);
+  const [fileData, setFileData] = useState(null);
   const [feedback, setFeedback] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const fileInputRef = useRef(null);
+
+  const handleFileChange = (e) => {
+    const selectedFile = e.target.files[0];
+    if (selectedFile) {
+      setFile(selectedFile);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        // The result is a data URL: "data:mime/type;base64,the_base_64_string"
+        // We need to extract just the base64 part.
+        const base64String = reader.result.split(',')[1];
+        setFileData({
+          mimeType: selectedFile.type,
+          data: base64String
+        });
+      };
+      reader.readAsDataURL(selectedFile);
+    }
+  };
 
   const handleReview = async () => {
-    if (!resumeText) return;
+    if (!fileData) return;
     setIsLoading(true);
-    const prompt = `Please review this resume and provide constructive feedback. Focus on clarity, impact, and formatting. Suggest specific improvements. Here is the resume:\n\n${resumeText}`;
-    const result = await callGeminiAPI(prompt);
+    const prompt = "Please review this uploaded resume and provide constructive feedback. Focus on clarity, impact, and formatting. Suggest specific improvements to make it stand out to recruiters.";
+    const result = await callGeminiAPI(prompt, fileData);
     setFeedback(result);
     setIsLoading(false);
   };
@@ -443,17 +512,25 @@ const ResumeReview = ({ onComplete }) => {
   return (
     <div className="p-6">
       <h2 className="component-title">Resume Review</h2>
-      <p className="component-subtitle">Paste your resume below. I'll provide feedback to help you make the best impression.</p>
-      <textarea
-        value={resumeText}
-        onChange={(e) => setResumeText(e.target.value)}
-        placeholder="Paste your resume here..."
-        className="textarea-field"
-        style={{height: '16rem'}}
-      />
-      <button onClick={handleReview} disabled={isLoading || !resumeText} className="button button-primary">
+      <p className="component-subtitle">Upload your resume (PDF, DOCX, etc.). I'll provide feedback to help you make the best impression.</p>
+      
+      <div className="file-upload-wrapper" onClick={() => fileInputRef.current.click()}>
+        <input
+          type="file"
+          ref={fileInputRef}
+          onChange={handleFileChange}
+          accept=".pdf,.doc,.docx,text/plain"
+        />
+        <p className="file-upload-text">
+          {file ? `Selected file:` : <><span>Click to browse</span> or drag and drop a file</>}
+        </p>
+        {file && <p className="file-name">{file.name}</p>}
+      </div>
+
+      <button onClick={handleReview} disabled={isLoading || !file} className="button button-primary">
         {isLoading ? 'Analyzing...' : 'Get Feedback'}
       </button>
+
       {isLoading && <LoadingSpinner />}
       {feedback && (
         <div className="results-box">
@@ -467,6 +544,7 @@ const ResumeReview = ({ onComplete }) => {
     </div>
   );
 };
+
 
 const BehavioralQuestions = ({ onComplete }) => {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -817,18 +895,16 @@ export default function App() {
   }
 
   return (
-    <>
-      <AppStyles />
-      <div className="app-container">
-        <div className="main-card">
-          <div className="card-header">
-            <h1 className="stage-title">{stageTitles[stage]}</h1>
-          </div>
-          <div className="card-body">
-            {stageComponents[stage]}
-          </div>
+    <div className="app-container">
+      <GlobalStyles />
+      <div className="main-card">
+        <div className="card-header">
+          <h1 className="stage-title">{stageTitles[stage]}</h1>
+        </div>
+        <div className="card-body">
+          {stageComponents[stage]}
         </div>
       </div>
-    </>
+    </div>
   );
 }
