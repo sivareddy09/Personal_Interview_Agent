@@ -372,7 +372,7 @@ const GlobalStyles = () => (
 
 
 // --- Helper Functions & Constants ---
-const API_KEY = ""; // PASTE YOUR GEMINI API KEY HERE
+const API_KEY = "AIzaSyAXvsgiQFh2KEV0OcCaPSxsSue11T_rOzM"; // PASTE YOUR GEMINI API KEY HERE
 
 const STAGES = {
   WELCOME: 'WELCOME',
